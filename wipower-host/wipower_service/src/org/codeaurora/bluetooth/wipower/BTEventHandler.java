@@ -41,39 +41,81 @@ import android.util.Log;
 import java.lang.Object;
 
 public class BTEventHandler extends BroadcastReceiver {
-    private static final String TAG = "BTEventHandler";
-    private static final boolean V = false/*Constants.VERBOSE*/;
+    private static final String TAG = "BTEventHandler-Wipower";
+    private static boolean V = false/*Constants.VERBOSE*/;
     private int state;
+    private BluetoothAdapter mBluetoothAdapter;
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if(SystemProperties.getBoolean("ro.bluetooth.wipower", false) == false) {
+        if(SystemProperties.getBoolean("persist.bluetooth.a4wp", false) == false) {
             Log.e(TAG, "WipowerService is not supported");
             return;
         }
 
+        Intent in = new Intent();
+        in.putExtras(intent);
+        in.setClass(context, WipowerService.class);
         String action = intent.getAction();
+        in.putExtra("action",action);
 
-        if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
+        V = SystemProperties.getBoolean("persist.a4wp.logging", false);
+
+        if (V) {
             state = intent.getIntExtra
-                           (BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
-            if (BluetoothAdapter.STATE_ON == state) {
-                if (V) Log.e(TAG, "Received BLUETOOTH_STATE_ON");
+                      (BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+            Log.d(TAG, "action: " + action + "state: " + state);
+        }
 
-                ComponentName service = context.startService
-                                      (new Intent(context, WipowerService.class));
+        if (action.equals("com.quicinc.wbc.action.ACTION_PTU_PRESENT")) {
+            mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+            if (mBluetoothAdapter.getState() == BluetoothAdapter.STATE_ON ||
+                mBluetoothAdapter.isLeEnabled()) {
+                if(SystemProperties.get("bluetooth.wipower").equals("true")) {
+                    Log.e(TAG, "Wipower Service is running");
+                    return;
+                }
+                ComponentName service = context.startService(in);
                 if (service != null) {
-                    Log.e(TAG, "WipowerService started successfully");
+                    Log.d(TAG, "WipowerService started successfully - PTU");
+                    SystemProperties.set("bluetooth.wipower", "true");
                 } else {
                     Log.e(TAG, "Could Not Start Wipower Service ");
                     return;
                 }
+            }
+        }
 
+        if ((action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)))
+        {
+            state = intent.getIntExtra
+                           (BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+            if (V) Log.d(TAG, "State: " + state);
 
-            } else if (BluetoothAdapter.STATE_OFF == state) {
-                if (V) Log.v(TAG, "Received BLUETOOTH_STATE_OFF");
-                context.stopService(new Intent(context, WipowerService.class));
-           }
+            if ((BluetoothAdapter.STATE_ON == state))
+            {
+                if(SystemProperties.get("bluetooth.wipower").equals("true")) {
+                    Log.e(TAG, "Wipower Service is running");
+                    return;
+                }
+                ComponentName service = context.startService(in);
+                if (service != null) {
+                    Log.d(TAG, "WipowerService started successfully");
+                    SystemProperties.set("bluetooth.wipower", "true");
+                } else {
+                    Log.e(TAG, "Could Not Start Wipower Service ");
+                    return;
+                }
+            } else if ( BluetoothAdapter.STATE_OFF == state ) {
+               mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+               if (!(mBluetoothAdapter.isLeEnabled())) {
+                   Log.v(TAG, "stopping wipower service on BLE off");
+                   context.startService(in);
+                   SystemProperties.set("bluetooth.wipower", "false");
+               } else {
+                   Log.v(TAG, "le is still enbaled - do not stop service");
+               }
+            }
         }
     }
 }
